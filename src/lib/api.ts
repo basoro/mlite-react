@@ -1,0 +1,2113 @@
+// API Configuration for mLITE
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://mlite.loc';
+const API_KEY = import.meta.env.VITE_API_KEY || 'YOUR_API_KEY_HERE';
+const API_PATH = import.meta.env.VITE_API_PATH ?? '/admin';
+const WA_API_URL = import.meta.env.VITE_WA_API_URL ?? 'http://localhost:4000';
+
+interface ApiConfig {
+  baseUrl: string;
+  apiPath: string;
+  apiKey: string;
+  token: string | null;
+  usernamePermission: string;
+  passwordPermission: string;
+}
+
+const config: ApiConfig = {
+  baseUrl: API_BASE_URL,
+  apiPath: API_PATH,
+  apiKey: API_KEY,
+  token: localStorage.getItem('auth_token'),
+  usernamePermission: localStorage.getItem('auth_username') || '',
+  passwordPermission: localStorage.getItem('auth_password') || '',
+};
+
+export const setToken = (token: string, username?: string, password?: string) => {
+  config.token = token;
+  localStorage.setItem('auth_token', token);
+  localStorage.setItem('auth_timestamp', new Date().getTime().toString());
+  
+  if (username) {
+    config.usernamePermission = username;
+    localStorage.setItem('auth_username', username);
+  }
+  if (password) {
+    config.passwordPermission = password;
+    localStorage.setItem('auth_password', password);
+  }
+};
+
+export const clearToken = () => {
+  config.token = null;
+  localStorage.removeItem('auth_token');
+  localStorage.removeItem('auth_timestamp');
+};
+
+const SESSION_DURATION_HOURS = 6;
+
+export const isSessionValid = () => {
+  const timestamp = localStorage.getItem('auth_timestamp');
+  if (!timestamp) return false;
+
+  const now = Date.now();
+  const sessionTime = Number(timestamp);
+  const duration = SESSION_DURATION_HOURS * 60 * 60 * 1000;
+
+  return now - sessionTime < duration;
+};
+
+export const getToken = () => config.token;
+
+const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
+  // Skip session check for login endpoint
+  if (!url.includes('/api/login') && !isSessionValid()) {
+    console.warn('Session expired, redirecting to login...');
+    clearToken();
+    window.location.href = '/login';
+    return Promise.reject(new Error('Session expired')); 
+  }
+
+  try {
+    const response = await fetch(url, options);
+
+    if (response.status === 401) {
+      // If it's login endpoint, 401 means wrong credentials, handled by caller
+      if (!url.includes('/api/login')) {
+        console.warn('Unauthorized (401), redirecting to login...');
+        clearToken();
+        window.location.href = '/login';
+        return Promise.reject(new Error('Unauthorized'));
+      }
+    }
+
+    // Extend session on successful request
+    if (response.ok && !url.includes('/api/login')) {
+      localStorage.setItem('auth_timestamp', Date.now().toString());
+    }
+
+    return response;
+  } catch (error) {
+    throw error;
+  }
+};
+
+const getHeaders = () => ({
+  'Content-Type': 'application/json',
+  'X-Api-Key': config.apiKey,
+  ...(config.token && { 'Authorization': `Bearer ${config.token}` }),
+  'X-Username-Permission': localStorage.getItem('auth_username') || '',
+  'X-Password-Permission': localStorage.getItem('auth_password') || '',
+});
+
+// Auth
+export const login = async (username: string, password: string) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/login`, {
+    method: 'POST',
+    headers: { 
+      'Content-Type': 'application/json',
+      'X-Api-Key': config.apiKey,
+    },
+    body: JSON.stringify({ 
+      username: username, 
+      password: password 
+    }),
+  });
+  const data = await response.json();
+  if (data.token) {
+    setToken(data.token, username, password);
+  }
+  return data;
+};
+
+// Pasien
+export const getPasienList = async (page = 1, perPage = 10, search = '') => {
+  const params = new URLSearchParams({
+    page: page.toString(),
+    per_page: perPage.toString(),
+    s: search,
+  });
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/pasien/list?${params}`, {
+    headers: getHeaders(),
+  });
+  return response.json();
+};
+
+// Kamar Inap (Rawat Inap)
+export const getKamarInapList = async (startDate: string, endDate: string, page = 0, length = 10, search = '', statusPulang = '-') => {
+  const params = new URLSearchParams({
+    draw: '1',
+    start: page.toString(),
+    length: length.toString(),
+    tgl_awal: startDate,
+    tgl_akhir: endDate,
+    search,
+    status_pulang: statusPulang,
+  });
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_inap/list?${params}`, {
+    headers: getHeaders(),
+  });
+  return response.json();
+};
+
+export const getKamarInapDetail = async (noRawat: string) => {
+  const normalizedNoRawat = noRawat.replace(/\//g, '');
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_inap/show/${normalizedNoRawat}`, {
+    headers: getHeaders(),
+  });
+  return response.json();
+};
+
+export const createKamarInap = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_inap/create`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menambahkan kamar inap');
+  }
+  return result;
+};
+
+export const updateKamarInap = async (noRawat: string, data: Record<string, any>) => {
+  const normalizedNoRawat = noRawat.replace(/\//g, '');
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_inap/update/${normalizedNoRawat}`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal memperbarui kamar inap');
+  }
+  return result;
+};
+
+export const deleteKamarInap = async (noRawat: string) => {
+  const normalizedNoRawat = noRawat.replace(/\//g, '');
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_inap/delete/${normalizedNoRawat}`, {
+    method: 'DELETE',
+    headers: getHeaders(),
+    body: JSON.stringify({}),
+  });
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menghapus kamar inap');
+  }
+  return result;
+};
+
+// SOAP & Tindakan for Kamar Inap (reusing similar structure if backend supports it, or separate endpoints)
+// Usually SOAP and Tindakan might share structure or be specific.
+// Assuming we might need specific endpoints or reused ones.
+// For now, let's assume we reuse rawat_jalan endpoints or similar structure but mapped to rawat_inap context if needed.
+// However, standard MLite usually separates them.
+// Let's assume standard endpoints for now or generic ones.
+// If specific endpoints are needed:
+export const getKamarInapSoap = async (noRawat: string) => {
+  const normalizedNoRawat = noRawat.replace(/\//g, '');
+  // Note: Adjust endpoint if different
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_inap/showsoap/${normalizedNoRawat}`, {
+    headers: getHeaders(),
+  });
+  return response.json();
+};
+
+export const saveKamarInapSOAP = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_inap/savesoap`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menyimpan SOAP');
+  }
+  return result;
+};
+
+export const deleteKamarInapSOAP = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_inap/deletesoap`, {
+    method: 'DELETE',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menghapus SOAP');
+  }
+  return result;
+};
+
+export const getKamarInapTindakan = async (noRawat: string) => {
+  const normalizedNoRawat = noRawat.replace(/\//g, '');
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_inap/showdetail/tindakan/${normalizedNoRawat}`, {
+    headers: getHeaders(),
+  });
+  return response.json();
+};
+
+export const saveKamarInapTindakan = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_inap/savedetail`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+  
+  return response.json();
+};
+
+export const deleteKamarInapTindakan = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_inap/deletedetail`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menghapus tindakan');
+  }
+  return result;
+};
+
+export const saveKamarInapCatatan = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_inap/savecatatan`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menyimpan catatan');
+  }
+  return result;
+};
+
+export const deleteKamarInapCatatan = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_inap/deletecatatan`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menghapus catatan');
+  }
+  return result;
+};
+
+export const saveKamarInapBerkas = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_inap/saveberkas`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menyimpan berkas');
+  }
+  return result;
+};
+
+export const deleteKamarInapBerkas = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_inap/deleteberkas`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menghapus berkas');
+  }
+  return result;
+};
+
+export const saveKamarInapRujukanInternal = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_inap/saverujukaninternal`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menyimpan rujukan internal');
+  }
+  return result;
+};
+
+export const deleteKamarInapRujukanInternal = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_inap/deleterujukaninternal`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menghapus rujukan internal');
+  }
+  return result;
+};
+
+export const saveKamarInapLaporanOperasi = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_inap/savelaporanoperasi`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menyimpan laporan operasi');
+  }
+  return result;
+};
+
+export const deleteKamarInapLaporanOperasi = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_inap/deletelaporanoperasi`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menghapus laporan operasi');
+  }
+  return result;
+};
+
+export const getRawatInapResep = async (noRawat: string) => {
+  const normalizedNoRawat = noRawat.replace(/\//g, '');
+  const [obatRes, racikanRes] = await Promise.all([
+    fetch(`${config.baseUrl}${config.apiPath}/api/rawat_inap/showdetail/obat/${normalizedNoRawat}`, { headers: getHeaders() }),
+    fetch(`${config.baseUrl}${config.apiPath}/api/rawat_inap/showdetail/racikan/${normalizedNoRawat}`, { headers: getHeaders() })
+  ]);
+  
+  const obatData = await obatRes.json();
+  const racikanData = await racikanRes.json();
+  
+  return {
+    status: 'success',
+    data: {
+      obat: obatData.data || [],
+      racikan: racikanData.data || []
+    }
+  };
+};
+
+export const deleteRawatInapResep = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_inap/deletedetail`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menghapus resep');
+  }
+  return result;
+};
+
+export const getPasienDetail = async (noRkmMedis: string) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/pasien/show/${noRkmMedis}`, {
+    headers: getHeaders(),
+  });
+  return response.json();
+};
+
+export const getRiwayatPerawatan = async (noRkmMedis: string, noRawat?: string) => {
+  const url = noRawat 
+    ? `${config.baseUrl}${config.apiPath}/api/pasien/riwayatperawatan/${noRkmMedis}/${noRawat.replace(/\//g, '')}`
+    : `${config.baseUrl}${config.apiPath}/api/pasien/riwayatperawatan/${noRkmMedis}`;
+    
+  const response = await fetchWithAuth(url, {
+    headers: getHeaders(),
+  });
+  return response.json();
+};
+
+export const createPasien = async (data: {
+  nm_pasien: string;
+  no_ktp: string;
+  jk: string;
+  tgl_lahir: string;
+  alamat: string;
+  no_tlp: string;
+  kd_pj: string;
+  no_rkm_medis?: string;
+}) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/pasien/create`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menyimpan data pasien');
+  }
+  return result;
+};
+
+export const updatePasien = async (noRkmMedis: string, data: Record<string, string>) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/pasien/update/${noRkmMedis}`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  return response.json();
+};
+
+export const deletePasien = async (noRkmMedis: string) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/pasien/delete/${noRkmMedis}`, {
+    method: 'DELETE',
+    headers: getHeaders(),
+  });
+  return response.json();
+};
+
+// Rawat Jalan
+export const getRawatJalanList = async (startDate: string, endDate: string, page = 0, length = 10, search = '') => {
+  const params = new URLSearchParams({
+    draw: '1',
+    start: page.toString(),
+    length: length.toString(),
+    tgl_awal: startDate,
+    tgl_akhir: endDate,
+    search,
+  });
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_jalan/list?${params}`, {
+    headers: getHeaders(),
+  });
+  return response.json();
+};
+
+export const getRawatJalanDetail = async (noRawat: string) => {
+  const normalizedNoRawat = noRawat.replace(/\//g, '');
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_jalan/show/${normalizedNoRawat}`, {
+    headers: getHeaders(),
+  });
+  return response.json();
+};
+
+export const getRawatJalanTindakan = async (noRawat: string) => {
+  const normalizedNoRawat = noRawat.replace(/\//g, '');
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_jalan/showdetail/tindakan/${normalizedNoRawat}`, {
+    headers: getHeaders(),
+  });
+  return response.json();
+};
+
+export const getRawatJalanLaboratorium = async (noRawat: string) => {
+  const normalizedNoRawat = noRawat.replace(/\//g, '');
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_jalan/showdetail/laboratorium/${normalizedNoRawat}`, {
+    headers: getHeaders(),
+  });
+  return response.json();
+};
+
+export const getRawatJalanRadiologi = async (noRawat: string) => {
+  const normalizedNoRawat = noRawat.replace(/\//g, '');
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_jalan/showdetail/radiologi/${normalizedNoRawat}`, {
+    headers: getHeaders(),
+  });
+  return response.json();
+};
+
+export const getRawatJalanSoap = async (noRawat: string) => {
+  const normalizedNoRawat = noRawat.replace(/\//g, '');
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_jalan/showsoap/${normalizedNoRawat}`, {
+    headers: getHeaders(),
+  });
+  return response.json();
+};
+
+export const createRawatJalan = async (data: {
+  no_rkm_medis: string;
+  kd_poli: string;
+  kd_dokter: string;
+  kd_pj: string;
+  tgl_registrasi?: string;
+  jam_reg?: string;
+}) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_jalan/create`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal membuat jadwal');
+  }
+  return result;
+};
+
+export const updateRawatJalan = async (noRawat: string, data: Record<string, any>) => {
+  const normalizedNoRawat = noRawat.replace(/\//g, '');
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_jalan/update/${normalizedNoRawat}`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal memperbarui jadwal');
+  }
+  return result;
+};
+
+export const deleteRawatJalan = async (noRawat: string) => {
+  const normalizedNoRawat = noRawat.replace(/\//g, '');
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_jalan/delete/${normalizedNoRawat}`, {
+    method: 'DELETE',
+    headers: getHeaders(),
+  });
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menghapus jadwal');
+  }
+  return result;
+};
+
+export const saveSOAP = async (data: {
+  no_rawat: string;
+  tgl_perawatan: string;
+  jam_rawat: string;
+  suhu_tubuh?: string;
+  tensi?: string;
+  nadi?: string;
+  respirasi?: string;
+  tinggi?: string;
+  berat?: string;
+  gcs?: string;
+  keluhan?: string;
+  pemeriksaan?: string;
+  alergi?: string;
+  lingkar_perut?: string;
+  rtl?: string;
+  penilaian?: string;
+  instruksi?: string;
+  evaluasi?: string;
+  nip?: string;
+}) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_jalan/savesoap`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menyimpan SOAP');
+  }
+  return result;
+};
+
+export const deleteSOAP = async (data: {
+  no_rawat: string;
+  tgl_perawatan: string;
+  jam_rawat: string;
+}) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_jalan/deletesoap`, {
+    method: 'DELETE',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menghapus SOAP');
+  }
+  return result;
+};
+
+export const saveTindakan = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_jalan/savedetail`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+  
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menyimpan tindakan');
+  }
+  return result;
+};
+
+export const deleteTindakan = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_jalan/deletedetail`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menghapus tindakan');
+  }
+  return result;
+};
+
+export const saveLaboratorium = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_jalan/savedetail`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+  
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menyimpan laboratorium');
+  }
+  return result;
+};
+
+export const deleteLaboratorium = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_jalan/deletedetail`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menghapus laboratorium');
+  }
+  return result;
+};
+
+export const saveRadiologi = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_jalan/savedetail`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+  
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menyimpan radiologi');
+  }
+  return result;
+};
+
+export const deleteRadiologi = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_jalan/deletedetail`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menghapus radiologi');
+  }
+  return result;
+};
+
+export const getRawatJalanResep = async (noRawat: string) => {
+  const normalizedNoRawat = noRawat.replace(/\//g, '');
+  // Fetch both obat and racikan
+  const [obatRes, racikanRes] = await Promise.all([
+    fetch(`${config.baseUrl}${config.apiPath}/api/rawat_jalan/showdetail/obat/${normalizedNoRawat}`, { headers: getHeaders() }),
+    fetch(`${config.baseUrl}${config.apiPath}/api/rawat_jalan/showdetail/racikan/${normalizedNoRawat}`, { headers: getHeaders() })
+  ]);
+  
+  const obatData = await obatRes.json();
+  const racikanData = await racikanRes.json();
+  
+  return {
+    status: 'success',
+    data: {
+      obat: obatData.data || [],
+      racikan: racikanData.data || []
+    }
+  };
+};
+
+export const deleteRawatJalanResep = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_jalan/deletedetail`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menghapus resep');
+  }
+  return result;
+};
+
+export const saveDiagnosa = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_jalan/savediagnosa`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menyimpan diagnosa');
+  }
+  return result;
+};
+
+export const deleteDiagnosa = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_jalan/deletediagnosa`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menghapus diagnosa');
+  }
+  return result;
+};
+
+export const saveProsedur = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_jalan/saveprosedur`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menyimpan prosedur');
+  }
+  return result;
+};
+
+export const deleteProsedur = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_jalan/deleteprosedur`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menghapus prosedur');
+  }
+  return result;
+};
+
+export const saveCatatan = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_jalan/savecatatan`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menyimpan catatan');
+  }
+  return result;
+};
+
+export const deleteCatatan = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_jalan/deletecatatan`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menghapus catatan');
+  }
+  return result;
+};
+
+export const saveBerkas = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_jalan/saveberkas`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menyimpan berkas');
+  }
+  return result;
+};
+
+export const deleteBerkas = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_jalan/deleteberkas`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menghapus berkas');
+  }
+  return result;
+};
+
+export const saveResume = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_jalan/saveresume`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menyimpan resume');
+  }
+  return result;
+};
+
+export const saveRujukanInternal = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_jalan/saverujukaninternal`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menyimpan rujukan internal');
+  }
+  return result;
+};
+
+export const deleteRujukanInternal = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_jalan/deleterujukaninternal`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menghapus rujukan internal');
+  }
+  return result;
+};
+
+export const saveLaporanOperasi = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_jalan/savelaporanoperasi`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menyimpan laporan operasi');
+  }
+  return result;
+};
+
+export const deleteLaporanOperasi = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/rawat_jalan/deletelaporanoperasi`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menghapus laporan operasi');
+  }
+  return result;
+};
+
+// Master Data
+export const getMasterList = async (type: string, page = 1, perPage = 10, search = '') => {
+  const params = new URLSearchParams({
+    page: page.toString(),
+    per_page: perPage.toString(),
+    s: search,
+    col: '',
+  });
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/master/list/${type}?${params}`, {
+    headers: getHeaders(),
+  });
+  return response.json();
+};
+
+export const saveMasterData = async (type: string, data: Record<string, string>) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/master/save/${type}`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  return response.json();
+};
+
+export const deleteMasterData = async (type: string, data: Record<string, string>) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/master/delete/${type}`, {
+    method: 'DELETE',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  return response.json();
+};
+
+// User Management
+export const getUsersList = async (page = 1, perPage = 10, search = '') => {
+  return getMasterList('mlite_users', page, perPage, search);
+};
+
+export const saveUser = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/users/save`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  return response.json();
+};
+
+export const deleteUser = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/users/delete`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  return response.json();
+};
+
+export const getSettings = async () => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/settings/settings`, {
+    headers: getHeaders(),
+  });
+  return response.json();
+};
+
+export const saveSettings = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/settings/saveSettings`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  return response.json();
+};
+
+
+// WhatsApp Gateway
+export const getContacts = async () => {
+  const response = await fetchWithAuth(`${WA_API_URL}/api/contacts`);
+  return response.json();
+};
+
+export const getMessages = async (contactId: number) => {
+  const response = await fetchWithAuth(`${WA_API_URL}/api/messages/${contactId}`);
+  return response.json();
+};
+
+export const sendMessage = async (to: string, message: string) => {
+  const response = await fetchWithAuth(`${WA_API_URL}/send`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ to, message }),
+  });
+  return response.json();
+};
+
+export const getWAStatus = async () => {
+  const response = await fetchWithAuth(`${WA_API_URL}/status`);
+  return response.json();
+};
+
+// Inventory
+export interface DataBarang {
+  kode_brng: string;
+  nama_brng: string;
+  kode_sat: string;
+  stokminimal: string;
+  kdjns: string;
+  expire: string;
+  status: '0' | '1';
+  h_beli: string;
+  ralan: string;
+  stok?: string; // Derived or joined
+}
+
+export interface RiwayatBarang {
+  kode_brng: string;
+  stok_awal: string;
+  masuk: string;
+  keluar: string;
+  stok_akhir: string;
+  posisi: string;
+  tanggal: string;
+  jam: string;
+  petugas: string;
+  kd_bangsal: string;
+  status: string;
+  no_batch: string;
+  no_faktur: string;
+  keterangan: string;
+  nama_brng?: string; // Joined
+}
+
+export interface GudangBarang {
+  kode_brng: string;
+  kd_bangsal: string;
+  stok: string;
+  no_batch: string;
+  no_faktur: string;
+  h_beli?: string;
+  nama_brng?: string; // Joined if available
+  kapasitas?: string;
+  nm_bangsal?: string;
+  kode_sat?: string;
+  stokminimal?: string;
+}
+
+export const getInventoryList = async (page = 1, perPage = 10, search = '') => {
+  return getMasterList('databarang', page, perPage, search);
+};
+
+export const getGudangBarangList = async (page = 1, perPage = 100, search = '') => {
+  return getMasterList('gudangbarang', page, perPage, search);
+};
+
+export const getStockMovementList = async (page = 1, perPage = 10, search = '', startDate?: string, endDate?: string) => {
+  const params = new URLSearchParams({
+    page: page.toString(),
+    per_page: perPage.toString(),
+    s: search,
+    col: '',
+  });
+  
+  if (startDate && endDate) {
+    // If backend supports tgl_awal/tgl_akhir for filtering
+    params.append('tgl_awal', startDate);
+    params.append('tgl_akhir', endDate);
+  }
+
+  // Use raw fetch to append extra params if getMasterList doesn't support them well, 
+  // or modify getMasterList. But getMasterList only takes fixed params.
+  // So we manually fetch here to include date params if needed.
+  // Assuming getMasterList implementation:
+  // const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/master/list/${type}?${params}`, ...
+  
+  // Since we can't easily modify getMasterList to take arbitrary params without changing all calls,
+  // let's construct the URL here manually similar to getMasterList but with dates.
+  
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/master/list/riwayat_barang_medis?${params}`, {
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Api-Key': config.apiKey,
+      ...(config.token && { 'Authorization': `Bearer ${config.token}` }),
+      'X-Username-Permission': localStorage.getItem('auth_username') || '',
+      'X-Password-Permission': localStorage.getItem('auth_password') || '',
+    },
+  });
+  return response.json();
+};
+
+export const restockInventory = async (data: {
+  kode_brng: string;
+  kd_bangsal: string;
+  stok: string;
+  no_batch?: string;
+  no_faktur?: string;
+}) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/master/save/gudangbarang`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  // The backend might return JSON or empty body or exit()
+  const text = await response.text();
+  try {
+    const json = JSON.parse(text);
+    return json;
+  } catch (e) {
+    // If it's not JSON, assume success if response.ok, or error message
+    // Some endpoints might return just text or empty string on success
+    if (response.ok) {
+       return { status: 'success', message: text };
+    }
+    return { status: 'error', message: text };
+  }
+};
+
+export const mutasiInventory = async (data: {
+  kode_brng: string;
+  kd_bangsaldari: string;
+  kd_bangsalke: string;
+  jml: string;
+  no_batch?: string;
+  no_faktur?: string;
+  harga?: string;
+  keterangan?: string;
+}) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/master/save/mutasibarang`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  // The backend might return JSON or empty body or exit()
+  const text = await response.text();
+  try {
+    const json = JSON.parse(text);
+    return json;
+  } catch (e) {
+    if (response.ok) {
+       return { status: 'success', message: text };
+    }
+    return { status: 'error', message: text };
+  }
+};
+
+// Farmasi
+export const getApotekRalanList = async (page = 1, perPage = 10, search = '', startDate?: string, endDate?: string) => {
+  const params = new URLSearchParams({
+    page: page.toString(),
+    per_page: perPage.toString(),
+    s: search,
+  });
+  
+  if (startDate && endDate) {
+    params.append('tgl_awal', startDate);
+    params.append('tgl_akhir', endDate);
+  }
+
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/apotek_ralan/reseplist?${params}`, {
+    headers: getHeaders(),
+  });
+  return response.json();
+};
+
+export const getApotekRanapList = async (page = 1, perPage = 10, search = '', startDate?: string, endDate?: string) => {
+  const params = new URLSearchParams({
+    page: page.toString(),
+    per_page: perPage.toString(),
+    s: search,
+  });
+  
+  if (startDate && endDate) {
+    params.append('tgl_awal', startDate);
+    params.append('tgl_akhir', endDate);
+  }
+
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/apotek_ranap/reseplist?${params}`, {
+    headers: getHeaders(),
+  });
+  return response.json();
+};
+
+export const getResepList = async (page = 1, perPage = 10, search = '', startDate?: string, endDate?: string) => {
+  // Legacy support or aggregate if needed, but we prefer specific calls now.
+  // For backward compatibility or combined view:
+  const [ralan, ranap] = await Promise.all([
+    getApotekRalanList(page, perPage, search, startDate, endDate),
+    getApotekRanapList(page, perPage, search, startDate, endDate)
+  ]);
+
+  const ralanData = (ralan.data || []).map((item: any) => ({ ...item, status: 'ralan' }));
+  const ranapData = (ranap.data || []).map((item: any) => ({ ...item, status: 'ranap' }));
+
+  const combined = [...ralanData, ...ranapData];
+  
+  // Sort by date/time desc
+  combined.sort((a, b) => {
+      const dateA = new Date(`${a.tgl_peresepan} ${a.jam_peresepan}`).getTime();
+      const dateB = new Date(`${b.tgl_peresepan} ${b.jam_peresepan}`).getTime();
+      return dateB - dateA;
+  });
+
+  return {
+      status: 'success',
+      data: combined,
+      total: combined.length // This is approximate since pagination is per-endpoint
+  };
+};
+
+export const getResepDetailItems = async (noResep: string, noRawat: string, status: string) => {
+  // Determine endpoint based on status
+  const endpointBase = status === 'ranap' ? 'apotek_ranap' : 'apotek_ralan';
+  const normalizedNoRawat = noRawat.replace(/\//g, '');
+  
+  // Create URLSearchParams to safely append query parameters
+  const params = new URLSearchParams({
+      no_resep: noResep
+  });
+
+  // Fetch both obat and racikan
+  const [obatRes, racikanRes] = await Promise.all([
+    fetch(`${config.baseUrl}${config.apiPath}/api/${endpointBase}/showdetail/obat/${normalizedNoRawat}?${params.toString()}`, { headers: getHeaders() }),
+    fetch(`${config.baseUrl}${config.apiPath}/api/${endpointBase}/showdetail/racikan/${normalizedNoRawat}?${params.toString()}`, { headers: getHeaders() })
+  ]);
+  
+  const obatData = await obatRes.json();
+  const racikanData = await racikanRes.json();
+  
+  // Filter by no_resep (redundant but safe)
+  const obat = (obatData.data || []);
+  const racikan = (racikanData.data || []);
+  
+  const result: any[] = [];
+  
+  // Normalize Obat
+  obat.forEach((item: any) => {
+    result.push({
+        ...item,
+        jenis: 'Obat',
+        aturan_pakai: item.aturan_pakai || '' 
+    });
+  });
+  
+  // Normalize Racikan
+  racikan.forEach((item: any) => {
+      // Header
+      result.push({
+          ...item,
+          jenis: 'Racikan',
+          nama_brng: item.nama_racik,
+          jml: item.jml_dr,
+          aturan_pakai: item.aturan_pakai || '',
+          keterangan: item.keterangan
+      });
+      
+      // Details
+      if (item.detail) {
+          item.detail.forEach((det: any) => {
+              result.push({
+                  ...det,
+                  jenis: 'Racikan Detail',
+                  no_racik: item.no_racik,
+                  jml: det.jml,
+                  kandungan: det.kandungan
+              });
+          });
+      }
+  });
+  
+  return { status: 'success', data: result };
+};
+
+export const validasiResep = async (data: any, type: 'ralan' | 'ranap' = 'ralan') => {
+  const endpoint = type === 'ranap' ? 'apotek_ranap' : 'apotek_ralan';
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/${endpoint}/savevalidasi`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  // The backend might return JSON or empty body, handle accordingly
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    return { status: response.ok ? 'success' : 'error', message: text };
+  }
+};
+
+export const getValidasi = async (noRawat: string, noResep: string, type: 'ralan' | 'ranap' = 'ralan') => {
+  const endpoint = type === 'ranap' ? 'apotek_ranap' : 'apotek_ralan';
+  const params = new URLSearchParams({
+    no_resep: noResep
+  });
+  const normalizedNoRawat = noRawat.replace(/\//g, '');
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/${endpoint}/validasi/${normalizedNoRawat}?${params}`, {
+    headers: getHeaders(),
+  });
+  return response.json();
+};
+
+export const simpanObatResep = async (data: any, type: 'ralan' | 'ranap' = 'ralan') => {
+  const endpoint = type === 'ranap' ? 'apotek_ranap' : 'apotek_ralan';
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/${endpoint}/simpanobatresep`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    return { status: response.ok ? 'success' : 'error', message: text };
+  }
+};
+
+export const simpanRacikanResep = async (data: any, type: 'ralan' | 'ranap' = 'ralan') => {
+  const endpoint = type === 'ranap' ? 'apotek_ranap' : 'apotek_ralan';
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/${endpoint}/simpanracikanresep`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    return { status: response.ok ? 'success' : 'error', message: text };
+  }
+};
+
+export const simpanItemKasir = async (data: any, type: 'ralan' | 'ranap' = 'ralan') => {
+  const endpointBase = type === 'ranap' ? 'kasir_rawat_inap' : 'kasir_rawat_jalan';
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/${endpointBase}/simpanitem`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    return { status: response.ok ? 'success' : 'error', message: text };
+  }
+};
+
+export const searchLayanan = async (search: string) => {
+  const params = new URLSearchParams({
+    s: search,
+    col: 'nm_perawatan'
+  });
+  // Using jns_perawatan master list as service list
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/master/list/jns_perawatan?${params}`, {
+    headers: getHeaders(),
+  });
+  return response.json();
+};
+
+export const searchLaboratorium = async (search: string) => {
+  const params = new URLSearchParams({
+    s: search,
+    col: 'nm_perawatan'
+  });
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/master/list/jns_perawatan_lab?${params}`, {
+    headers: getHeaders(),
+  });
+  return response.json();
+};
+
+export const searchRadiologi = async (search: string) => {
+  const params = new URLSearchParams({
+    s: search,
+    col: 'nm_perawatan'
+  });
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/master/list/jns_perawatan_radiologi?${params}`, {
+    headers: getHeaders(),
+  });
+  return response.json();
+};
+
+export const searchMetodeRacik = async (search: string) => {
+  const params = new URLSearchParams({
+    s: search,
+    col: 'nm_racik'
+  });
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/master/list/metode_racik?${params}`, {
+    headers: getHeaders(),
+  });
+  return response.json();
+};
+
+export const searchObat = async (search: string, type: 'ralan' | 'ranap' = 'ralan') => {
+  const params = new URLSearchParams({
+    s: search
+  });
+  
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/master/list/gudangbarang?${params}`, {
+    headers: getHeaders(),
+  });
+  
+  return response.json();
+};
+
+export const searchObatApotek = searchObat;
+
+export const getDiagnosaPasien = async (startDate: string, endDate: string, limit = 10) => {
+  const params = new URLSearchParams({
+    tgl_awal: startDate,
+    tgl_akhir: endDate,
+    limit: limit.toString(),
+  });
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/master/list/diagnosa_pasien?${params}`, {
+    headers: getHeaders(),
+  });
+  return response.json();
+};
+
+
+// Kasir
+export const getKasirRalanList = async (page = 1, perPage = 10, search = '', startDate?: string, endDate?: string) => {
+  const params = new URLSearchParams({
+    page: page.toString(),
+    per_page: perPage.toString(),
+    s: search,
+  });
+  
+  if (startDate && endDate) {
+    params.append('tgl_awal', startDate);
+    params.append('tgl_akhir', endDate);
+  }
+
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/kasir_rawat_jalan/billinglist?${params}`, {
+    headers: getHeaders(),
+  });
+  return response.json();
+};
+
+export const getKasirRanapList = async (page = 1, perPage = 10, search = '', startDate?: string, endDate?: string) => {
+  const params = new URLSearchParams({
+    page: page.toString(),
+    per_page: perPage.toString(),
+    s: search,
+  });
+  
+  if (startDate && endDate) {
+    params.append('tgl_awal', startDate);
+    params.append('tgl_akhir', endDate);
+  }
+
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/kasir_rawat_inap/billinglist?${params}`, {
+    headers: getHeaders(),
+  });
+  return response.json();
+};
+
+export const getBillingDetail = async (noRawat: string, status: 'ralan' | 'ranap') => {
+  const endpointBase = status === 'ranap' ? 'kasir_rawat_inap' : 'kasir_rawat_jalan';
+  const normalizedNoRawat = noRawat.replace(/\//g, '');
+  
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/${endpointBase}/billingdetail/${normalizedNoRawat}`, {
+    headers: getHeaders(),
+  });
+  return response.json();
+};
+
+export const simpanKasir = async (data: any, type: 'ralan' | 'ranap' = 'ralan') => {
+  const endpointBase = type === 'ranap' ? 'kasir_rawat_inap' : 'kasir_rawat_jalan';
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/${endpointBase}/simpankasir`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    return { status: response.ok ? 'success' : 'error', message: text };
+  }
+};
+
+export const hapusItemKasir = async (data: any, type: 'ralan' | 'ranap' = 'ralan') => {
+  const endpointBase = type === 'ranap' ? 'kasir_rawat_inap' : 'kasir_rawat_jalan';
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/${endpointBase}/hapusitem`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    return { status: response.ok ? 'success' : 'error', message: text };
+  }
+};
+
+
+export const hapusResep = async (data: any, type: 'ralan' | 'ranap' = 'ralan') => {
+  const endpoint = type === 'ranap' ? 'apotek_ranap' : 'apotek_ralan';
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/${endpoint}/hapusresep`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    return { status: response.ok ? 'success' : 'error', message: text };
+  }
+};
+
+
+// IGD API Endpoints
+
+export const getIgdList = async (startDate: string, endDate: string, page = 0, length = 10, search = '') => {
+  const params = new URLSearchParams({
+    draw: '1',
+    start: page.toString(),
+    length: length.toString(),
+    tgl_awal: startDate,
+    tgl_akhir: endDate,
+    search,
+  });
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/igd/list?${params}`, {
+    headers: getHeaders(),
+  });
+  return response.json();
+};
+
+export const getIgdDetail = async (noRawat: string) => {
+  const normalizedNoRawat = noRawat.replace(/\//g, '');
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/igd/show/${normalizedNoRawat}`, {
+    headers: getHeaders(),
+  });
+  return response.json();
+};
+
+export const getIgdTindakan = async (noRawat: string) => {
+  const normalizedNoRawat = noRawat.replace(/\//g, '');
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/igd/showdetail/tindakan/${normalizedNoRawat}`, {
+    headers: getHeaders(),
+  });
+  return response.json();
+};
+
+export const getIgdSoap = async (noRawat: string) => {
+  const normalizedNoRawat = noRawat.replace(/\//g, '');
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/igd/showsoap/${normalizedNoRawat}`, {
+    headers: getHeaders(),
+  });
+  return response.json();
+};
+
+export const createIgd = async (data: {
+  no_rkm_medis: string;
+  kd_poli: string;
+  kd_dokter: string;
+  kd_pj: string;
+  tgl_registrasi?: string;
+  jam_reg?: string;
+}) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/igd/create`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal membuat jadwal IGD');
+  }
+  return result;
+};
+
+export const updateIgd = async (noRawat: string, data: Record<string, any>) => {
+  const normalizedNoRawat = noRawat.replace(/\//g, '');
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/igd/update/${normalizedNoRawat}`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal memperbarui jadwal IGD');
+  }
+  return result;
+};
+
+export const deleteIgd = async (noRawat: string) => {
+  const normalizedNoRawat = noRawat.replace(/\//g, '');
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/igd/delete/${normalizedNoRawat}`, {
+    method: 'DELETE',
+    headers: getHeaders(),
+  });
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menghapus jadwal IGD');
+  }
+  return result;
+};
+
+export const saveIgdSOAP = async (data: {
+  no_rawat: string;
+  tgl_perawatan: string;
+  jam_rawat: string;
+  suhu_tubuh?: string;
+  tensi?: string;
+  nadi?: string;
+  respirasi?: string;
+  tinggi?: string;
+  berat?: string;
+  gcs?: string;
+  keluhan?: string;
+  pemeriksaan?: string;
+  alergi?: string;
+  lingkar_perut?: string;
+  rtl?: string;
+  penilaian?: string;
+  instruksi?: string;
+  evaluasi?: string;
+  nip?: string;
+}) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/igd/savesoap`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menyimpan SOAP IGD');
+  }
+  return result;
+};
+
+export const deleteIgdSOAP = async (data: {
+  no_rawat: string;
+  tgl_perawatan: string;
+  jam_rawat: string;
+}) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/igd/deletesoap`, {
+    method: 'DELETE',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menghapus SOAP IGD');
+  }
+  return result;
+};
+
+export const saveIgdTindakan = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/igd/savedetail`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+  
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menyimpan tindakan IGD');
+  }
+  return result;
+};
+
+export const deleteIgdTindakan = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/igd/deletedetail`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menghapus tindakan IGD');
+  }
+  return result;
+};
+
+export const getIgdResep = async (noRawat: string) => {
+  const normalizedNoRawat = noRawat.replace(/\//g, '');
+  const [obatRes, racikanRes] = await Promise.all([
+    fetch(`${config.baseUrl}${config.apiPath}/api/igd/showdetail/obat/${normalizedNoRawat}`, { headers: getHeaders() }),
+    fetch(`${config.baseUrl}${config.apiPath}/api/igd/showdetail/racikan/${normalizedNoRawat}`, { headers: getHeaders() })
+  ]);
+  
+  const obatData = await obatRes.json();
+  const racikanData = await racikanRes.json();
+  
+  return {
+    status: 'success',
+    data: {
+      obat: obatData.data || [],
+      racikan: racikanData.data || []
+    }
+  };
+};
+
+export const deleteIgdResep = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/igd/deletedetail`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menghapus resep IGD');
+  }
+  return result;
+};
+
+export const saveIgdDiagnosa = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/igd/savediagnosa`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menyimpan diagnosa IGD');
+  }
+  return result;
+};
+
+export const deleteIgdDiagnosa = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/igd/deletediagnosa`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menghapus diagnosa IGD');
+  }
+  return result;
+};
+
+export const saveIgdProsedur = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/igd/saveprosedur`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menyimpan prosedur IGD');
+  }
+  return result;
+};
+
+export const deleteIgdProsedur = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/igd/deleteprosedur`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menghapus prosedur IGD');
+  }
+  return result;
+};
+
+export const saveIgdCatatan = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/igd/savecatatan`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menyimpan catatan IGD');
+  }
+  return result;
+};
+
+export const deleteIgdCatatan = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/igd/deletecatatan`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menghapus catatan IGD');
+  }
+  return result;
+};
+
+export const saveIgdBerkas = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/igd/saveberkas`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menyimpan berkas IGD');
+  }
+  return result;
+};
+
+export const deleteIgdBerkas = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/igd/deleteberkas`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menghapus berkas IGD');
+  }
+  return result;
+};
+
+export const saveIgdResume = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/igd/saveresume`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menyimpan resume IGD');
+  }
+  return result;
+};
+
+export const saveIgdRujukanInternal = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/igd/saverujukaninternal`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menyimpan rujukan internal IGD');
+  }
+  return result;
+};
+
+export const deleteIgdRujukanInternal = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/igd/deleterujukaninternal`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menghapus rujukan internal IGD');
+  }
+  return result;
+};
+
+export const saveIgdLaporanOperasi = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/igd/savelaporanoperasi`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menyimpan laporan operasi IGD');
+  }
+  return result;
+};
+
+export const deleteIgdLaporanOperasi = async (data: any) => {
+  const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/igd/deletelaporanoperasi`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (result.status === 'error') {
+    throw new Error(result.message || 'Gagal menghapus laporan operasi IGD');
+  }
+  return result;
+};
