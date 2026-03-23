@@ -55,8 +55,8 @@ const Login: React.FC = () => {
               'Authorization': `Bearer ${result.token}`,
               'Content-Type': 'application/json',
               'X-Api-Key': import.meta.env.VITE_API_KEY || 'YOUR_API_KEY_HERE',
-              'X-Username-Permission': username,
-              'X-Password-Permission': password
+              'X-Username-Permission': import.meta.env.VITE_API_USERNAME || username,
+              'X-Password-Permission': import.meta.env.VITE_API_PASSWORD || password
             };
             
             const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://mlite.loc';
