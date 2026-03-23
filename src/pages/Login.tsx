@@ -62,37 +62,21 @@ const Login: React.FC = () => {
             const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://mlite.loc';
             const apiPath = import.meta.env.VITE_API_PATH || '/admin';
             
-            // Determine endpoint based on role (default to petugas if not dokter)
-            // Fix undefined role by parsing JWT token if needed
-            let role = result.role;
-            if (!role && result.token) {
-              try {
-                // Decode JWT token payload (middle part of token)
-                const base64Url = result.token.split('.')[1];
-                const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-                const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-                  return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-                }).join(''));
-                const decodedToken = JSON.parse(jsonPayload);
-                role = decodedToken.role || decodedToken.jenis_petugas || 'petugas';
-              } catch (e) {
-                console.warn('Failed to parse role from token', e);
-                role = 'petugas'; // Fallback
-              }
-            }
+            // Fetch both dokter and petugas data to ensure we find the user regardless of role
+            const [dokterResponse, petugasResponse] = await Promise.all([
+              getMasterList('dokter', 1, 10, username, authHeaders).catch(() => ({ data: [] })),
+              getMasterList('petugas', 1, 10, username, authHeaders).catch(() => ({ data: [] }))
+            ]);
             
-            const isDokter = role === 'dokter';
-            const endpointType = isDokter ? 'dokter' : 'petugas';
+            const dokterList = dokterResponse.data || (Array.isArray(dokterResponse) ? dokterResponse : []);
+            const petugasList = petugasResponse.data || (Array.isArray(petugasResponse) ? petugasResponse : []);
             
-            // Fetch user details to get phone number using api.ts function
-            const userDataJson = await getMasterList(endpointType, 1, 10, username, authHeaders);
-            
-            const usersList = userDataJson.data || (Array.isArray(userDataJson) ? userDataJson : []);
-            const userDetail = usersList.find((u: any) => 
-              (isDokter ? u.kd_dokter : u.nip) === username
+            // Combine both lists and find the user
+            const combinedList = [...dokterList, ...petugasList];
+            const userDetail = combinedList.find((u: any) => 
+              u.kd_dokter === username || u.nip === username
             );
 
-            console.log('Role:', role);
             console.log('Phone Number:', userDetail?.no_telp);
 
             // Handle invalid phone numbers (empty, '0', or too short)
