@@ -1052,7 +1052,7 @@ export const deleteLaporanOperasi = async (data: any) => {
 };
 
 // Master Data
-export const getMasterList = async (type: string, page = 1, perPage = 10, search = '') => {
+export const getMasterList = async (type: string, page = 1, perPage = 10, search = '', customHeaders?: HeadersInit) => {
   const params = new URLSearchParams({
     page: page.toString(),
     per_page: perPage.toString(),
@@ -1060,7 +1060,7 @@ export const getMasterList = async (type: string, page = 1, perPage = 10, search
     col: '',
   });
   const response = await fetchWithAuth(`${config.baseUrl}${config.apiPath}/api/master/list/${type}?${params}`, {
-    headers: getHeaders(),
+    headers: customHeaders || getHeaders(),
   });
   return response.json();
 };

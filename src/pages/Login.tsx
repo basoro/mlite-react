@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import WhatsappOtpService from '@/lib/whatsappOtp';
 import OtpInput from 'react-otp-input';
+import { getMasterList } from '@/lib/api';
 
 const Login: React.FC = () => {
   const [username, setUsername] = useState('');
@@ -62,25 +63,46 @@ const Login: React.FC = () => {
             const apiPath = import.meta.env.VITE_API_PATH || '/admin';
             
             // Determine endpoint based on role (default to petugas if not dokter)
-            const isDokter = result.role === 'dokter';
-            const endpoint = isDokter ? '/api/master/list/dokter' : '/api/master/list/petugas';
+            // Fix undefined role by parsing JWT token if needed
+            let role = result.role;
+            if (!role && result.token) {
+              try {
+                // Decode JWT token payload (middle part of token)
+                const base64Url = result.token.split('.')[1];
+                const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+                const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+                  return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+                }).join(''));
+                const decodedToken = JSON.parse(jsonPayload);
+                role = decodedToken.role || decodedToken.jenis_petugas || 'petugas';
+              } catch (e) {
+                console.warn('Failed to parse role from token', e);
+                role = 'petugas'; // Fallback
+              }
+            }
             
-            // Fetch user details to get phone number
-            const userResponse = await fetch(`${baseUrl}${apiPath}${endpoint}?s=${username}&col=${isDokter ? 'kd_dokter' : 'nip'}`, {
-              headers: authHeaders
-            });
+            const isDokter = role === 'dokter';
+            const endpointType = isDokter ? 'dokter' : 'petugas';
             
-            const userDataJson = await userResponse.json();
+            // Fetch user details to get phone number using api.ts function
+            const userDataJson = await getMasterList(endpointType, 1, 10, username, authHeaders);
+            
             const usersList = userDataJson.data || (Array.isArray(userDataJson) ? userDataJson : []);
             const userDetail = usersList.find((u: any) => 
               (isDokter ? u.kd_dokter : u.nip) === username
             );
 
-            console.log('Phone Number:', userDetail.no_telp);
-            console.log('Role:', result.role);
+            console.log('Role:', role);
+            console.log('Phone Number:', userDetail?.no_telp);
 
+            // Handle invalid phone numbers (empty, '0', or too short)
+            const isValidPhone = userDetail && 
+                               userDetail.no_telp && 
+                               userDetail.no_telp !== '0' && 
+                               userDetail.no_telp !== '-' && 
+                               userDetail.no_telp.length > 5;
 
-            if (userDetail && userDetail.no_telp) {
+            if (isValidPhone) {
               const phone = userDetail.no_telp;
               setPhoneNumber(phone);
                             
