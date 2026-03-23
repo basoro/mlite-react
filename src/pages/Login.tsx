@@ -76,10 +76,14 @@ const Login: React.FC = () => {
               (isDokter ? u.kd_dokter : u.nip) === username
             );
 
+            console.log('Phone Number:', userDetail.no_telp);
+            console.log('Role:', result.role);
+
+
             if (userDetail && userDetail.no_telp) {
               const phone = userDetail.no_telp;
               setPhoneNumber(phone);
-              
+                            
               // Send OTP
               const otpResult = await WhatsappOtpService.sendOTP(phone, username);
               
