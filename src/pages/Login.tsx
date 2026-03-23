@@ -38,32 +38,98 @@ const Login: React.FC = () => {
 
     setIsLoading(true);
     try {
-      const requireOtp = import.meta.env.VITE_REQUIRE_OTP !== 'false';
+      const requireOtp = import.meta.env.VITE_REQUIRE_OTP === 'true';
       
       // Pass false for otpVerified initially
       const result = await login(username, password, false);
       
       if (result.token) {
         if (requireOtp) {
-          // Get phone number from user data or prompt for it if not available
-          // Asumsi backend mengembalikan nomor HP user, jika tidak kita harus minta input
-          const userPhone = result.phone || result.no_telp || ''; 
+          // Temporarily store credentials for later full login
+          setUserData({ ...result, username, password });
           
-          setUserData(result);
-          
-          if (userPhone) {
-            setPhoneNumber(userPhone);
-            await sendOtpToPhone(userPhone, username);
-          } else {
-            // Tampilkan form input nomor HP jika tidak ada di database
-            setShowOtp(true);
+          try {
+            // Setup temp auth headers to fetch user details
+            const authHeaders = {
+              'Authorization': `Bearer ${result.token}`,
+              'Content-Type': 'application/json',
+              'X-Api-Key': import.meta.env.VITE_API_KEY || 'YOUR_API_KEY_HERE',
+              'X-Username-Permission': username,
+              'X-Password-Permission': password
+            };
+            
+            const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://mlite.loc';
+            const apiPath = import.meta.env.VITE_API_PATH || '/admin';
+            
+            // Determine endpoint based on role (default to petugas if not dokter)
+            const isDokter = result.role === 'dokter';
+            const endpoint = isDokter ? '/api/master/list/dokter' : '/api/master/list/petugas';
+            
+            // Fetch user details to get phone number
+            const userResponse = await fetch(`${baseUrl}${apiPath}${endpoint}?s=${username}&col=${isDokter ? 'kd_dokter' : 'nip'}`, {
+              headers: authHeaders
+            });
+            
+            const userDataJson = await userResponse.json();
+            const usersList = userDataJson.data || (Array.isArray(userDataJson) ? userDataJson : []);
+            const userDetail = usersList.find((u: any) => 
+              (isDokter ? u.kd_dokter : u.nip) === username
+            );
+
+            if (userDetail && userDetail.no_telp) {
+              const phone = userDetail.no_telp;
+              setPhoneNumber(phone);
+              
+              // Send OTP
+              const otpResult = await WhatsappOtpService.sendOTP(phone, username);
+              
+              if (otpResult.success) {
+                // Save OTP to DB
+                try {
+                  await fetch(`${baseUrl}${apiPath}/api/master/save/mlite_users`, {
+                    method: 'POST',
+                    headers: authHeaders,
+                    body: JSON.stringify({
+                      id: result.id || username,
+                      otp_code: otpResult.otp,
+                      otp_expires: otpResult.expiresAt
+                    })
+                  });
+                } catch (saveError) {
+                  console.warn('Failed to save OTP to DB, but proceeding with local verification', saveError);
+                }
+
+                setShowOtp(true);
+                toast({
+                  title: 'OTP Terkirim',
+                  description: `Kode OTP telah dikirim ke WhatsApp ${phone}`,
+                });
+              } else {
+                toast({
+                  title: 'Error',
+                  description: 'Gagal mengirim OTP WhatsApp',
+                  variant: 'destructive',
+                });
+              }
+            } else {
+              toast({
+                title: 'Error',
+                description: 'Nomor WhatsApp tidak ditemukan di profil Anda. Silakan hubungi IT.',
+                variant: 'destructive',
+              });
+            }
+          } catch (fetchError) {
+            console.error('Error fetching user phone:', fetchError);
             toast({
-              title: 'Verifikasi Dibutuhkan',
-              description: 'Silakan masukkan nomor WhatsApp Anda',
+              title: 'Error',
+              description: 'Gagal mengambil data profil pengguna untuk OTP.',
+              variant: 'destructive',
             });
           }
         } else {
           // Normal login without OTP
+          // Re-login with otpVerified = true to set user context properly
+          await login(username, password, true);
           toast({
             title: 'Berhasil',
             description: `Selamat datang di ${import.meta.env.VITE_APP_TITLE || 'mLITE'}`,
