@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Heart, Eye, EyeOff, ArrowRight, ShieldCheck } from 'lucide-react';
+import { Heart, Eye, EyeOff, ArrowRight, ShieldCheck, Loader2, Phone } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import WhatsappOtpService from '@/lib/whatsappOtp';
+import OtpInput from 'react-otp-input';
 
 const Login: React.FC = () => {
   const [username, setUsername] = useState('');
@@ -65,7 +66,7 @@ const Login: React.FC = () => {
           // Normal login without OTP
           toast({
             title: 'Berhasil',
-            description: 'Selamat datang di mLITE',
+            description: `Selamat datang di ${import.meta.env.VITE_APP_TITLE || 'mLITE'}`,
           });
           navigate('/');
         }
@@ -140,7 +141,7 @@ const Login: React.FC = () => {
         
         toast({
           title: 'Verifikasi Berhasil',
-          description: 'Selamat datang di mLITE',
+          description: `Selamat datang di ${import.meta.env.VITE_APP_TITLE || 'mLITE'}`,
         });
         navigate('/');
       } else {
@@ -170,8 +171,8 @@ const Login: React.FC = () => {
             <Heart className="w-7 h-7 text-primary-foreground" />
           </div>
           <div>
-            <h1 className="text-sidebar-foreground font-bold text-2xl">mLITE</h1>
-            <p className="text-sidebar-muted text-sm">Medic LITE Indonesia</p>
+            <h1 className="text-sidebar-foreground font-bold text-2xl">{import.meta.env.VITE_APP_TITLE || 'mLITE'}</h1>
+            <p className="text-sidebar-muted text-sm">{import.meta.env.VITE_APP_DESC || 'Medic LITE Indonesia'}</p>
           </div>
         </div>
 
@@ -202,7 +203,7 @@ const Login: React.FC = () => {
         </div>
 
         <p className="text-sidebar-muted text-sm">
-          © 2026 mLITE. Hak Cipta Dilindungi.
+          © {new Date().getFullYear()} {import.meta.env.VITE_APP_TITLE || 'mLITE'}. Hak Cipta Dilindungi.
         </p>
       </div>
 
@@ -215,7 +216,7 @@ const Login: React.FC = () => {
               <Heart className="w-6 h-6 text-primary-foreground" />
             </div>
             <div>
-              <h1 className="text-foreground font-bold text-xl">mLITE</h1>
+              <h1 className="text-foreground font-bold text-xl">{import.meta.env.VITE_APP_TITLE || 'mLITE'}</h1>
             </div>
           </div>
 
@@ -245,7 +246,12 @@ const Login: React.FC = () => {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
+                <div className="flex justify-between items-center">
+                  <Label htmlFor="password">Password</Label>
+                  <a href="#" className="text-xs text-primary hover:underline">
+                    Lupa password?
+                  </a>
+                </div>
                 <div className="relative">
                   <Input
                     id="password"
@@ -265,23 +271,16 @@ const Login: React.FC = () => {
                 </div>
               </div>
 
-              <div className="flex items-center justify-between">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" className="w-4 h-4 rounded border-input accent-primary" />
-                  <span className="text-sm text-muted-foreground">Ingat saya</span>
-                </label>
-                <a href="#" className="text-sm text-primary hover:underline">
-                  Lupa password?
-                </a>
-              </div>
-
               <Button
                 type="submit"
                 className="w-full h-12 text-base font-semibold"
                 disabled={isLoading}
               >
                 {isLoading ? (
-                  <span className="animate-pulse">Memproses...</span>
+                  <span className="flex items-center gap-2">
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Memproses...
+                  </span>
                 ) : (
                   <>
                     Masuk
@@ -291,66 +290,77 @@ const Login: React.FC = () => {
               </Button>
             </form>
           ) : (
-            <form onSubmit={handleOtpVerify} className="space-y-6">
-              <div className="space-y-2">
-                <Label htmlFor="phoneNumber">Nomor WhatsApp</Label>
-                <div className="flex gap-2">
-                  <Input
-                    id="phoneNumber"
-                    type="text"
-                    placeholder="Contoh: 08123456789"
-                    value={phoneNumber}
-                    onChange={(e) => setPhoneNumber(e.target.value)}
-                    className="h-12 flex-1"
-                  />
-                  <Button 
-                    type="button" 
-                    onClick={handleSendOtpClick}
-                    disabled={isLoading || !phoneNumber}
-                    variant="outline"
-                    className="h-12"
-                  >
-                    Kirim Ulang
-                  </Button>
+            <form onSubmit={handleOtpVerify} className="space-y-6 animate-in slide-in-from-right">
+              <div className="text-center space-y-4">
+                <div className="mx-auto w-12 h-12 text-primary bg-primary/10 rounded-full flex items-center justify-center">
+                  <Phone className="h-6 w-6" />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">
+                    Masukkan kode OTP 6 digit yang telah dikirim ke WhatsApp
+                  </p>
+                  <p className="text-lg font-bold text-primary">{phoneNumber}</p>
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="otp">Kode OTP</Label>
-                <Input
-                  id="otp"
-                  type="text"
-                  placeholder="Masukkan 6 digit OTP"
+              <div className="flex justify-center py-2">
+                <OtpInput
                   value={otp}
-                  onChange={(e) => setOtp(e.target.value)}
-                  className="h-12 text-center text-lg tracking-widest"
-                  maxLength={6}
+                  onChange={setOtp}
+                  numInputs={6}
+                  renderSeparator={<span className="w-2"></span>}
+                  renderInput={(props) => (
+                    <input
+                      {...props}
+                      className="w-10 h-12 text-center text-xl border rounded-md focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all bg-background"
+                    />
+                  )}
+                  inputType="tel"
+                  shouldAutoFocus
                 />
               </div>
 
-              <Button
-                type="submit"
-                className="w-full h-12 text-base font-semibold"
-                disabled={isLoading || otp.length !== 6}
-              >
-                {isLoading ? (
-                  <span className="animate-pulse">Memproses...</span>
-                ) : (
-                  <>
-                    Verifikasi
-                    <ShieldCheck className="w-5 h-5 ml-2" />
-                  </>
-                )}
-              </Button>
-
-              <div className="text-center mt-4">
-                <button
-                  type="button"
-                  onClick={() => setShowOtp(false)}
-                  className="text-sm text-muted-foreground hover:text-primary transition-colors"
+              <div className="space-y-3">
+                <Button
+                  type="submit"
+                  className="w-full h-12 text-base font-semibold"
+                  disabled={isLoading || otp.length !== 6}
                 >
-                  Kembali ke login
-                </button>
+                  {isLoading ? (
+                    <span className="flex items-center gap-2">
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      Memproses...
+                    </span>
+                  ) : (
+                    <>
+                      Verifikasi
+                      <ShieldCheck className="w-5 h-5 ml-2" />
+                    </>
+                  )}
+                </Button>
+
+                <div className="flex justify-between items-center text-sm pt-2">
+                  <button
+                    type="button"
+                    onClick={handleSendOtpClick}
+                    disabled={isLoading}
+                    className="text-primary hover:underline font-medium disabled:opacity-50"
+                  >
+                    Kirim Ulang OTP
+                  </button>
+                  
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowOtp(false);
+                      setOtp('');
+                      setUserData(null);
+                    }}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    Kembali ke Login
+                  </button>
+                </div>
               </div>
             </form>
           )}

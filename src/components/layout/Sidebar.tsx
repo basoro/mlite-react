@@ -78,8 +78,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false }) => {
           </div>
           {!isCollapsed && (
             <div className="animate-in fade-in slide-in-from-left-4 duration-300">
-              <h1 className="text-sidebar-foreground font-bold text-lg">mLITE</h1>
-              <p className="text-sidebar-muted text-xs">Medic LITE Indonesia</p>
+              <h1 className="text-sidebar-foreground font-bold text-lg">{import.meta.env.VITE_APP_TITLE || 'mLITE'}</h1>
+              <p className="text-sidebar-muted text-xs">{import.meta.env.VITE_APP_DESC || 'Medic LITE Indonesia'}</p>
             </div>
           )}
         </div>
