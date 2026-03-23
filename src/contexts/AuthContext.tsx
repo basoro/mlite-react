@@ -73,7 +73,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         const loggedInUser: User = {
           username,
           role: data.fullname || 'Admin Klinik', 
-          clinicName: import.meta.env.VITE_CLINIC_NAME || 'Klinik Utama Atila Medika',
+          clinicName: import.meta.env.VITE_APP_TITLE || 'mLITE Indonesia',
         };
         
         // Hanya set user jika tidak perlu OTP atau OTP sudah diverifikasi

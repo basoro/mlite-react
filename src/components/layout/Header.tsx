@@ -42,7 +42,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick, onToggleCollapse }) => {
             <Building2 className="w-5 h-5 text-muted-foreground" />
           </div>
           <span className="font-semibold text-primary text-lg truncate max-w-[150px] sm:max-w-none">
-            {user?.clinicName || import.meta.env.VITE_APP_COMPANY || 'Atila Medika'}
+            {user?.clinicName || import.meta.env.VITE_APP_TITLE || 'mLITE Indonesia'}
           </span>
         </div>
       </div>

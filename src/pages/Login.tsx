@@ -142,7 +142,7 @@ const Login: React.FC = () => {
           await login(username, password, true);
           toast({
             title: 'Berhasil',
-            description: `Selamat datang di ${import.meta.env.VITE_APP_TITLE || 'mLITE'}`,
+            description: `Selamat datang di ${import.meta.env.VITE_APP_TITLE || 'mLITE Indonesia'}`,
           });
           navigate('/');
         }
@@ -217,7 +217,7 @@ const Login: React.FC = () => {
         
         toast({
           title: 'Verifikasi Berhasil',
-          description: `Selamat datang di ${import.meta.env.VITE_APP_TITLE || 'mLITE'}`,
+          description: `Selamat datang di ${import.meta.env.VITE_APP_TITLE || 'mLITE Indonesia'}`,
         });
         navigate('/');
       } else {
@@ -247,8 +247,8 @@ const Login: React.FC = () => {
             <Heart className="w-7 h-7 text-primary-foreground" />
           </div>
           <div>
-            <h1 className="text-sidebar-foreground font-bold text-2xl">{import.meta.env.VITE_APP_TITLE || 'mLITE'}</h1>
-            <p className="text-sidebar-muted text-sm">{import.meta.env.VITE_APP_DESC || 'Medic LITE Indonesia'}</p>
+            <h1 className="text-sidebar-foreground font-bold text-2xl">mLITE</h1>
+            <p className="text-sidebar-muted text-sm">{import.meta.env.VITE_APP_TITLE || 'mLITE Indonesia'}</p>
           </div>
         </div>
 
@@ -279,7 +279,7 @@ const Login: React.FC = () => {
         </div>
 
         <p className="text-sidebar-muted text-sm">
-          © {new Date().getFullYear()} {import.meta.env.VITE_APP_TITLE || 'mLITE'}. Hak Cipta Dilindungi.
+          © {new Date().getFullYear()} {import.meta.env.VITE_APP_TITLE || 'mLITE Indonesia'}. Hak Cipta Dilindungi.
         </p>
       </div>
 
@@ -292,7 +292,7 @@ const Login: React.FC = () => {
               <Heart className="w-6 h-6 text-primary-foreground" />
             </div>
             <div>
-              <h1 className="text-foreground font-bold text-xl">{import.meta.env.VITE_APP_TITLE || 'mLITE'}</h1>
+              <h1 className="text-foreground font-bold text-xl">{import.meta.env.VITE_APP_TITLE || 'mLITE Indonesia'}</h1>
             </div>
           </div>
 
