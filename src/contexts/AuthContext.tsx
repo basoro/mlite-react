@@ -10,7 +10,7 @@ interface User {
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
-  login: (username: string, password: string) => Promise<any>;
+  login: (username: string, password: string, otpVerified?: boolean) => Promise<any>;
   logout: () => void;
   isLoading: boolean;
 }
@@ -65,7 +65,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     return () => clearInterval(interval);
   }, []);
 
-  const login = async (username: string, password: string): Promise<any> => {
+  const login = async (username: string, password: string, otpVerified: boolean = false): Promise<any> => {
     try {
       const data = await apiLogin(username, password);
       
@@ -76,8 +76,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           clinicName: 'Klinik Utama Atila Medika',
         };
         
-        setUser(loggedInUser);
-        localStorage.setItem('user', JSON.stringify(loggedInUser));
+        // Hanya set user jika tidak perlu OTP atau OTP sudah diverifikasi
+        // Jika butuh OTP tapi belum diverifikasi, return data tapi jangan login dulu
+        if (otpVerified || import.meta.env.VITE_REQUIRE_OTP === 'false') {
+          setUser(loggedInUser);
+          localStorage.setItem('user', JSON.stringify(loggedInUser));
+        }
       }
       return data;
     } catch (error) {
