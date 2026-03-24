@@ -31,7 +31,11 @@ class WhatsappOtpService {
       const appTitle = import.meta.env.VITE_APP_TITLE || 'mLITE Indonesia';
       const message = `Kode OTP untuk login ${appTitle}: ${otp}\n\nKode ini berlaku selama 5 menit.\nJangan berikan kode ini kepada siapa pun.`;
 
-      const waGatewayUrl = import.meta.env.VITE_WA_GATEWAY_URL || 'https://mlite-whatsapp.mlite.id/send';
+      // Menggunakan VITE_WA_API_URL ditambah dengan endpoint /send
+      const waBaseUrl = import.meta.env.VITE_WA_API_URL || 'https://whatsapp.rshd.my.id';
+      // Hapus trailing slash jika ada agar tidak double slash
+      const cleanBaseUrl = waBaseUrl.replace(/\/$/, '');
+      const waGatewayUrl = `${cleanBaseUrl}/send`;
 
       console.log('Sending WhatsApp OTP to:', cleanNumber);
 
